@@ -1,0 +1,114 @@
+{
+    "manifestVersion": 1,
+    "id": "set-by-extension-manifest.environment.json",
+    "name": "set-by-extension-manifest.environment.json",
+    "version": "set-by-extension-manifest.environment.json",
+    "publisher": "octopusdeploy",
+    "targets": [
+        {
+            "id": "Microsoft.VisualStudio.Services"
+        }
+    ],
+    "description": "Build and Release tasks for integrating with Octopus Deploy",
+    "public": false,
+    "categories": [
+        "Build and release"
+    ],
+    "tags": [
+        "octopus",
+        "octopus deploy",
+        "deploy"
+    ],
+    "icons": {
+        "default": "extension-icon.png"
+    },
+    "screenshots": [
+        {
+            "path": "img/tfsbuild-addbuildstep.png"
+        }
+    ],
+    "content": {
+        "details": {
+            "path": "vsts.md"
+        }
+    },
+    "links": {
+        "home": {
+            "uri": "https://octopus.com"
+        },
+        "getstarted": {
+            "uri": "http://docs.octopusdeploy.com/display/OD/Use+the+Team+Foundation+Build+Custom+Task"
+        },
+        "support": {
+            "uri": "https://octopus.com/support"
+        },
+        "repository": {
+            "uri": "https://github.com/OctopusDeploy/OctoTFS"
+        }
+    },
+    "files": [
+        {
+            "path": "Tasks"
+        },
+        {
+            "path": "img",
+            "addressable": true
+        }
+    ],
+    "scopes": [
+        "vso.build",
+        "vso.build_execute"
+    ],
+    "contributions": [
+        {
+            "id": "octopus-create-release",
+            "type": "ms.vss-distributed-task.task",
+            "targets": [
+                "ms.vss-distributed-task.tasks"
+            ],
+            "properties": {
+                "name": "Tasks/CreateOctopusRelease"
+            }
+        },
+        {
+            "id": "octopus-deploy",
+            "type": "ms.vss-distributed-task.task",
+            "targets": [
+                "ms.vss-distributed-task.tasks"
+            ],
+            "properties": {
+                "name": "Tasks/Deploy"
+            }
+        },
+        {
+            "id": "octopus-pack",
+            "type": "ms.vss-distributed-task.task",
+            "targets": [
+                "ms.vss-distributed-task.tasks"
+            ],
+            "properties": {
+                "name": "Tasks/Pack"
+            }
+        },
+        {
+            "id": "octopus-push",
+            "type": "ms.vss-distributed-task.task",
+            "targets": [
+                "ms.vss-distributed-task.tasks"
+            ],
+            "properties": {
+                "name": "Tasks/Push"
+            }
+        },
+        {
+            "id": "octopus-promote",
+            "type": "ms.vss-distributed-task.task",
+            "targets": [
+                "ms.vss-distributed-task.tasks"
+            ],
+            "properties": {
+                "name": "Tasks/Promote"
+            }
+        }
+    ]
+}

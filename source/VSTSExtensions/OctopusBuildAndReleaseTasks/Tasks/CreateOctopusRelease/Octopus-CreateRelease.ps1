@@ -1,29 +1,12 @@
-﻿param(
-	[string] [Parameter(Mandatory = $true)]
-	$ConnectedServiceName,
-	[string] [Parameter(Mandatory = $true)]
-	$ProjectName,
-	[string] [Parameter(Mandatory = $false)]
-	$ChangesetCommentReleaseNotes,
-	[string] [Parameter(Mandatory = $false)]
-	$WorkItemReleaseNotes,
-	[string] [Parameter(Mandatory = $false)]
-	$CustomReleaseNotes,
-	[string] [Parameter(Mandatory = $false)]
-	$DeployTo,
-	[string] [Parameter(Mandatory = $false)]
-	$AdditionalArguments
-)
-
-Write-Verbose "Entering script Octopus-CreateRelease.ps1"
-Import-Module "Microsoft.TeamFoundation.DistributedTask.Task.Common"
+﻿[CmdletBinding()]
+param()
 
 # Get release notes from linked changesets and work items
 function Get-LinkedReleaseNotes($vssEndpoint, $comments, $workItems) {
 
     Write-Host "Environment = $env:BUILD_REPOSITORY_PROVIDER"
 	Write-Host "Comments = $comments, WorkItems = $workItems"
-	$personalAccessToken = $vssEndpoint.Authorization.Parameters.AccessToken
+	$personalAccessToken = $vssEndpoint.Auth.Parameters.AccessToken
 	
 	$changesUri = "$($env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)$($env:SYSTEM_TEAMPROJECTID)/_apis/build/builds/$($env:BUILD_BUILDID)/changes"
 	$headers = @{Authorization = "Bearer $personalAccessToken"}
@@ -91,29 +74,6 @@ function CommitUrl($change) {
 	return "$($env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI)$($env:SYSTEM_TEAMPROJECTID)/_git/$repositoryId/commit/$commitId"
 }
 
-
-# Returns the Octo.exe parameters for credentials
-function Get-OctoCredentialParameters($serviceDetails) {
-	$pwd = $serviceDetails.Authorization.Parameters.Password
-	if ($pwd.StartsWith("API-")) {
-        return "--apiKey=$pwd"
-    } else {
-        $un = $serviceDetails.Authorization.Parameters.Username
-        return "--user=$un --pass=$pwd"
-    }
-}
-
-
-
-# Returns a path to the Octo.exe file
-function Get-PathToOctoExe() {
-	$PSScriptRoot = Split-Path -Parent -Path $MyInvocation.MyCommand.ScriptBlock.File
-	$targetPath = Join-Path -Path $PSScriptRoot -ChildPath "Octo.exe" 
-	return $targetPath
-}
-
-
-
 # Create a Release Notes file for Octopus
 function Create-ReleaseNotes($linkedItemReleaseNotes) {
 	$buildNumber = $env:BUILD_BUILDNUMBER #works
@@ -136,38 +96,73 @@ function Create-ReleaseNotes($linkedItemReleaseNotes) {
 	}
 	
 	$fileguid = [guid]::NewGuid()
-	$fileLocation = Join-Path -Path $env:BUILD_STAGINGDIRECTORY -ChildPath "release-notes-$fileguid.md"
+	$fileLocation = Join-Path -Path $env:SYSTEM_DEFAULTWORKINGDIRECTORY -ChildPath "release-notes-$fileguid.md"
 	$notes | Out-File $fileLocation -Encoding utf8
 	
 	return "--releaseNotesFile=`"$fileLocation`""
 }
 
-
 ### Execution starts here ###
 
-# Get required parameters
-$connectedServiceDetails = Get-ServiceEndpoint -Name "$ConnectedServiceName" -Context $distributedTaskContext 
-$credentialParams = Get-OctoCredentialParameters($connectedServiceDetails)
-$octopusUrl = $connectedServiceDetails.Url
+Trace-VstsEnteringInvocation $MyInvocation
 
-# Get release notes
-$linkedReleaseNotes = ""
-$wiReleaseNotes = [System.Convert]::ToBoolean($WorkItemReleaseNotes)
-$commentReleaseNotes = [System.Convert]::ToBoolean($ChangesetCommentReleaseNotes)
-if ($wiReleaseNotes -or $commentReleaseNotes) {
-	$vssEndPoint = Get-ServiceEndPoint -Name "SystemVssConnection" -Context $distributedTaskContext
-	$linkedReleaseNotes = Get-LinkedReleaseNotes $vssEndPoint $commentReleaseNotes $wiReleaseNotes
+try {
+
+    . .\Octopus-VSTS.ps1
+
+    $ConnectedServiceName = Get-VstsInput -Name ConnectedServiceName -Require
+    $ProjectName = Get-VstsInput -Name ProjectName -Require
+    $ReleaseNumber = Get-VstsInput -Name ReleaseNumber
+    $Channel = Get-VstsInput -Name Channel
+    $ChangesetCommentReleaseNotes = Get-VstsInput -Name ChangesetCommentReleaseNotes -AsBool
+    $WorkItemReleaseNotes = Get-VstsInput -Name WorkItemReleaseNotes -AsBool
+    $CustomReleaseNotes = Get-VstsInput -Name CustomReleaseNotes
+    $DeployToEnvironment = Get-VstsInput -Name DeployToEnvironment
+	$DeployForTenants = Get-VstsInput -Name DeployForTenants
+	$DeployForTenantTags = Get-VstsInput -Name DeployForTenantTags
+    $DeploymentProgress = Get-VstsInput -Name DeploymentProgress -AsBool
+    $AdditionalArguments = Get-VstsInput -Name AdditionalArguments
+
+    # Get required parameters
+    $connectedServiceDetails = Get-VstsEndpoint -Name "$ConnectedServiceName" -Require
+    $credentialParams = Get-OctoCredentialArgs($connectedServiceDetails)
+    $octopusUrl = $connectedServiceDetails.Url
+
+    # Get release notes
+    $linkedReleaseNotes = ""
+    if ($WorkItemReleaseNotes -or $ChangesetCommentReleaseNotes) {
+        $vssEndPoint = Get-VstsEndpoint -Name "SystemVssConnection" -Require
+        $linkedReleaseNotes = Get-LinkedReleaseNotes $vssEndPoint $ChangesetCommentReleaseNotes $WorkItemReleaseNotes
+    }
+    $releaseNotesParam = Create-ReleaseNotes $linkedReleaseNotes
+
+    #deployment arguments
+    if (-not [System.String]::IsNullOrWhiteSpace($DeployToEnvironment)) {
+        $deployToParams = "--deployTo=`"$DeployToEnvironment`""
+        if ($DeploymentProgress) {
+            $deployToParams += " --progress"
+        }
+    }
+
+  	# optional deployment tenants & tags
+	if (-not [System.String]::IsNullOrWhiteSpace($DeployForTenants)) {
+        ForEach($Tenant in $DeployForTenants.Split(',').Trim()) {
+            $AdditionalArguments = $AdditionalArguments + " --tenant=`"$Tenant`""
+        }
+	}
+
+	if (-not [System.String]::IsNullOrWhiteSpace($DeployForTenantTags)) {
+        ForEach($Tenant in $DeployForTenantTags.Split(',').Trim()) {
+            $AdditionalArguments = $AdditionalArguments + " --tenanttag=`"$Tenant`""
+		}
+	}
+
+    # Call Octo.exe
+    $octoPath = Get-OctoExePath
+    Invoke-VstsTool -FileName $octoPath -Arguments "create-release --project=`"$ProjectName`" --releaseNumber=`"$ReleaseNumber`" --channel=`"$Channel`" --server=$octopusUrl $credentialParams --enableServiceMessages $deployToParams $releaseNotesParam $AdditionalArguments" -RequireExitCodeZero
+
+} finally {
+    Trace-VstsLeavingInvocation $MyInvocation
 }
-$releaseNotesParam = Create-ReleaseNotes $linkedReleaseNotes
 
-#deployment arguments
-if (-not [System.String]::IsNullOrWhiteSpace($DeployTo)) {
-	$deployToParams = "--deployTo=`"$DeployTo`""
-}
 
-# Call Octo.exe
-$octoPath = Get-PathToOctoExe
-Write-Output "Path to Octo.exe = $octoPath"
-Invoke-Tool -Path $octoPath -Arguments "create-release --project=`"$ProjectName`" --server=$octopusUrl $credentialParams $deployToParams $releaseNotesParam $AdditionalArguments"
-
-Write-Verbose "Finishing Octopus-CreateRelease.ps1"
